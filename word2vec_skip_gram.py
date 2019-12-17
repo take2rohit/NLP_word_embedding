@@ -1,21 +1,27 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# In[1]:
+
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from model import SkipGramLanguageModeler
 import pickle
 import numpy as np
 import matplotlib.pyplot as plt
+from helper import reduce_to_k_dim, plot_embeddings
+import warnings
+warnings.filterwarnings('ignore')
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-device_name = torch.cuda.get_device_name(device)
+torch.cuda.get_device_name(device)
+
+
+# In[2]:
 
 
 with open('vocabulary.pickle', 'rb') as handle:
@@ -34,6 +40,8 @@ for bigram in bigrams_dataset:
     y_data.append(word_to_ix[bigram[1]])
 
 
+# In[3]:
+
 
 class Word_dataset(Dataset):
     
@@ -47,24 +55,17 @@ class Word_dataset(Dataset):
     
     def __len__(self):
         return self.length
-    
+
 train_dataset = Word_dataset(x_data, y_data)
 train_loader = DataLoader(dataset=train_dataset, batch_size = 2**14+10000, shuffle=True)
 
+iterator = iter(train_loader)
+x, y = iterator.next()
+(x.shape, y.shape)
 
 
-class SkipGramLanguageModeler(nn.Module):
+# In[4]:
 
-    def __init__(self, vocab_size, embedding_dim):
-        super().__init__()
-        self.embeddings = nn.Embedding(vocab_size, embedding_dim)
-        self.linear1 = nn.Linear(embedding_dim, vocab_size)
-
-    def forward(self, inputs):
-        embeds = self.embeddings(inputs)
-        out = self.linear1(embeds)
-        log_probs = F.log_softmax(out, dim=1)
-        return log_probs
 
 EMBEDDING_DIM = 300
 net = SkipGramLanguageModeler(len(vocab), EMBEDDING_DIM)
@@ -73,18 +74,22 @@ criterion = nn.NLLLoss()
 optimizer = torch.optim.Adam(net.parameters())
 
 
+# In[5]:
+
+
 losses = []
 
-iteration = 10000
-
-print("Training started on: ", device_name)
+iteration = 10001
+k = 0
+vocab_ind_np = torch.tensor(list(ix_to_word.keys())).cuda()
+words = ['barrels', 'ecuador', 'energy', 'industry', 'kuwait', 'oil', 'output', 'petroleum', 'venezuela','free',
+         'freedom','jury','favour','capable','capacity','capital', 'county','india','america', 'americans']
 
 for epoch in range(iteration):
     total_loss = 0
     
     for data in train_loader:
         x, y = data
-        x, y = Variable(x).to(device), Variable(y).to(device)
         log_probs = net.forward(x)
         loss = criterion(log_probs, y).to(device)
         loss.backward()
@@ -94,10 +99,25 @@ for epoch in range(iteration):
         
     losses.append(total_loss)
     
-    if epoch %2 == 0:
+    if epoch %3 == 0:
         print('Epoch: {} Loss: {}'.format(epoch, total_loss))
     
-    if epoch % 50 == 0:
-        PATH = './saved_model.pth'
+    if epoch %50 == 0:
+        
+        PATH = './saved_model/saved_model_{}.pth'.format(k)
         torch.save(net.state_dict(), PATH)
-        print("Model Saved! at epoch no.: {}".format(epoch))
+        print("\n Model Saved! at epoch no.: {}".format(epoch))
+        k+=1
+        
+        embedding_matrix = net.embedding_outputs(vocab_ind_np).cpu().detach().numpy()
+        embedding_matrix_reduced = reduce_to_k_dim(embedding_matrix, k=2)
+        plot_embeddings(embedding_matrix_reduced, word_to_ix, words, epoch)
+        
+print('\n Done Training')
+
+
+# In[ ]:
+
+
+
+
